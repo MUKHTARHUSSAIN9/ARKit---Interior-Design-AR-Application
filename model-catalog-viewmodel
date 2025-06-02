@@ -1,0 +1,19 @@
+import Foundation
+import Combine
+
+class ModelCatalogViewModel: ObservableObject {
+    @Published var availableModels: [String] = []
+    @Published var selectedModel: String? = nil
+
+    init() {
+        loadModelCatalog()
+    }
+
+    func loadModelCatalog() {
+        availableModels = ["chair", "table", "sofa", "lamp", "bed"]
+    }
+
+    func selectModel(named name: String) {
+        selectedModel = name
+    }
+}
