@@ -1,0 +1,97 @@
+import SwiftUI
+import RealityKit
+import ARKit
+import Combine
+
+class ARViewModel: ObservableObject {
+    @Published var selectedModelName: String? = nil
+    var cancellables = Set<AnyCancellable>()
+    
+    func placeModel(in arView: ARView) {
+        guard let modelName = selectedModelName else { return }
+        let modelEntity = try! ModelEntity.loadModel(named: modelName)
+        let anchor = AnchorEntity(plane: .horizontal)
+        anchor.addChild(modelEntity)
+        arView.scene.anchors.append(anchor)
+    }
+}
+
+struct ARViewContainer: UIViewRepresentable {
+    @ObservedObject var viewModel: ARViewModel
+    
+    func makeUIView(context: Context) -> ARView {
+        let arView = ARView(frame: .zero)
+
+        let config = ARWorldTrackingConfiguration()
+        config.sceneReconstruction = .mesh
+        config.environmentTexturing = .automatic
+        config.planeDetection = [.horizontal, .vertical]
+        config.frameSemantics = .sceneDepth
+        arView.session.run(config)
+
+        arView.environment.sceneUnderstanding.options.insert(.occlusion)
+        arView.automaticallyConfigureSession = false
+
+        let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        arView.addGestureRecognizer(tapGesture)
+
+        context.coordinator.arView = arView
+        context.coordinator.viewModel = viewModel
+
+        return arView
+    }
+
+    func updateUIView(_ uiView: ARView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        return Coordinator()
+    }
+
+    class Coordinator: NSObject {
+        var arView: ARView?
+        var viewModel: ARViewModel?
+
+        @objc func handleTap(_ sender: UITapGestureRecognizer) {
+            guard let arView = arView, let viewModel = viewModel else { return }
+
+            let location = sender.location(in: arView)
+            if let result = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .horizontal).first {
+                let transform = Transform(matrix: result.worldTransform)
+                guard let modelName = viewModel.selectedModelName else { return }
+                let modelEntity = try! ModelEntity.loadModel(named: modelName)
+                modelEntity.generateCollisionShapes(recursive: true)
+                modelEntity.transform = transform
+                let anchor = AnchorEntity(world: result.worldTransform)
+                anchor.addChild(modelEntity)
+                arView.scene.anchors.append(anchor)
+            }
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject var viewModel = ARViewModel()
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ARViewContainer(viewModel: viewModel)
+                .edgesIgnoringSafeArea(.all)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 20) {
+                    ForEach(["chair", "table", "sofa"], id: \.") { model in
+                        Button(action: {
+                            viewModel.selectedModelName = model
+                        }) {
+                            Text(model.capitalized)
+                                .padding()
+                                .background(Color.white.opacity(0.8))
+                                .cornerRadius(10)
+                        }
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+}
